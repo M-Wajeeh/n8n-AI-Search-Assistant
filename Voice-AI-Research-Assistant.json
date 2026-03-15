@@ -1,0 +1,585 @@
+{
+  "name": "Voice AI Research Assistant (Final Fix)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "voice-agent",
+        "options": {
+          "allowedOrigins": "*"
+        }
+      },
+      "name": "Voice Agent Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        464
+      ],
+      "id": "node_0",
+      "webhookId": "YOUR_WEBHOOK_ID"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ !!Object.keys($binary || {}).length }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "name": "Check for Audio",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        64,
+        464
+      ],
+      "id": "node_1"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/audio/transcriptions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_GROQ_API_KEY"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "multipart-form-data",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "parameterType": "formBinaryData",
+              "name": "file",
+              "inputDataFieldName": "={{ Object.keys($binary)[0] }}"
+            },
+            {
+              "name": "model",
+              "value": "whisper-large-v3-turbo"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Groq Whisper STT",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        256,
+        256
+      ],
+      "id": "node_2",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "// Robustly extract query from either transcription or body\nconst transcribedText = $node[\"Groq Whisper STT\"]?.json?.text;\nconst bodyQuery = $node[\"Voice Agent Webhook\"]?.json?.body?.query;\nconst finalQuery = transcribedText || bodyQuery || \"no query\";\n\nreturn { query: finalQuery };"
+      },
+      "name": "Final Query",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        512,
+        464
+      ],
+      "id": "node_3"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_GROQ_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an intent classifier for a voice assistant. Respond with exactly one of these four labels: research, weather, data_query, or general_question. Do not provide any other text.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $json.query }}\"\n    }\n  ],\n  \"temperature\": 0.1\n}",
+        "options": {}
+      },
+      "name": "Classify Intent (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        704,
+        464
+      ],
+      "id": "node_4",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const response = $node[\"Classify Intent (Groq)\"].json.choices[0].message.content || \"general_question\";\nconst intent = response.toLowerCase().trim();\nconst validIntents = [\"research\", \"weather\", \"data_query\", \"general_question\"];\n\nreturn {\n  intent: validIntents.includes(intent) ? intent : \"general_question\",\n  query: $node[\"Final Query\"].json.query,\n  session_id: $node[\"Voice Agent Webhook\"].json.body.session_id || \"default\",\n  language: $node[\"Voice Agent Webhook\"].json.body.language || \"en\"\n};"
+      },
+      "name": "Parse Intent",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        912,
+        464
+      ],
+      "id": "node_5"
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{ $json.intent }}",
+        "rules": {
+          "rules": [
+            {
+              "value2": "research"
+            },
+            {
+              "value2": "weather",
+              "output": 1
+            },
+            {
+              "value2": "data_query",
+              "output": 2
+            },
+            {
+              "value2": "general_question",
+              "output": 3
+            }
+          ]
+        }
+      },
+      "name": "Route by Intent",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [
+        1104,
+        464
+      ],
+      "id": "node_6"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://google.serper.dev/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "X-API-KEY",
+              "value": "YOUR_SERPER_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ q: $node[\"Parse Intent\"].json.query, num: 5 }) }}",
+        "options": {}
+      },
+      "name": "Search Web",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1312,
+        160
+      ],
+      "id": "node_7",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "if ($node[\"Search Web\"].json.error || !$node[\"Search Web\"].json.organic) {\n  return {\n    error: true,\n    pipeline: \"research\",\n    message: \"I'm sorry, I couldn't retrieve that information right now.\"\n  };\n}\n\nreturn {\n  results: $node[\"Search Web\"].json.organic.slice(0, 5).map(r => ({\n    title: r.title,\n    snippet: r.snippet,\n    url: r.link\n  }))\n};"
+      },
+      "name": "Format Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        160
+      ],
+      "id": "node_8"
+    },
+    {
+      "parameters": {
+        "url": "https://api.openweathermap.org/data/2.5/weather?q=CITY_NAME&appid=YOUR_OPENWEATHERMAP_API_KEY&units=metric",
+        "options": {}
+      },
+      "name": "Fetch Weather",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1312,
+        352
+      ],
+      "id": "node_9",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "if ($node[\"Fetch Weather\"].json.error || !$node[\"Fetch Weather\"].json.main) {\n  return {\n    error: true,\n    pipeline: \"weather\",\n    message: \"I'm sorry, I couldn't retrieve that information right now.\"\n  };\n}\n\nconst data = $node[\"Fetch Weather\"].json;\nreturn {\n  location: data.name,\n  temperature: data.main.temp,\n  condition: data.weather[0].description,\n  humidity: data.main.humidity,\n  wind_speed: data.wind.speed\n};"
+      },
+      "name": "Format Weather Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        352
+      ],
+      "id": "node_10"
+    },
+    {
+      "parameters": {
+        "authentication": "airtableTokenApi",
+        "operation": "list",
+        "application": {
+          "__rl": true,
+          "value": "YOUR_AIRTABLE_APP_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "YOUR_AIRTABLE_TABLE_ID",
+          "mode": "id"
+        },
+        "additionalOptions": {}
+      },
+      "name": "Query Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 1,
+      "position": [
+        1312,
+        560
+      ],
+      "id": "node_11",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "YOUR_AIRTABLE_CRED_ID",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (items.length === 0 || (items[0].json && items[0].json.error)) {\n  return {\n    error: true,\n    pipeline: \"data_query\",\n    message: \"I'm sorry, I couldn't find any matching records in Airtable.\"\n  };\n}\n\nreturn {\n  records: items.map(i => i.json.fields),\n  count: items.length,\n  source: \"airtable\"\n};"
+      },
+      "name": "Normalize Airtable Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        560
+      ],
+      "id": "node_12"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_GROQ_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a helpful voice assistant. Answer the user's question in 2 to 3 concise sentences.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $node[\"Parse Intent\"].json.query }}\"\n    }\n  ],\n  \"temperature\": 0.3\n}",
+        "options": {}
+      },
+      "name": "Ask Groq",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1408,
+        752
+      ],
+      "id": "node_13",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.groq.com/openai/v1/chat/completions",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Bearer YOUR_GROQ_API_KEY"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "model",
+              "value": "llama-3.3-70b-versatile"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "name": "Summarize (Groq)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2064,
+        464
+      ],
+      "id": "node_14",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"response\": \"{{ $json.error ? 'I am sorry, I encountered an error processing your request.' : $json.choices[0].message.content }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "options": {}
+      },
+      "name": "Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        2256,
+        464
+      ],
+      "id": "node_15"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Voice Agent Webhook": {
+      "main": [
+        [
+          {
+            "node": "Check for Audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check for Audio": {
+      "main": [
+        [
+          {
+            "node": "Groq Whisper STT",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Final Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Groq Whisper STT": {
+      "main": [
+        [
+          {
+            "node": "Final Query",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Final Query": {
+      "main": [
+        [
+          {
+            "node": "Classify Intent (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Classify Intent (Groq)": {
+      "main": [
+        [
+          {
+            "node": "Parse Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Intent": {
+      "main": [
+        [
+          {
+            "node": "Route by Intent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route by Intent": {
+      "main": [
+        [
+          {
+            "node": "Search Web",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Fetch Weather",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Query Airtable",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Ask Groq",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Web": {
+      "main": [
+        [
+          {
+            "node": "Format Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Search Results": {
+      "main": [
+        [
+          {
+            "node": "Summarize (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Weather": {
+      "main": [
+        [
+          {
+            "node": "Format Weather Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Weather Data": {
+      "main": [
+        [
+          {
+            "node": "Summarize (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Query Airtable": {
+      "main": [
+        [
+          {
+            "node": "Normalize Airtable Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Airtable Response": {
+      "main": [
+        [
+          {
+            "node": "Summarize (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Ask Groq": {
+      "main": [
+        [
+          {
+            "node": "Summarize (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Summarize (Groq)": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "versionId": "YOUR_VERSION_ID",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "YOUR_INSTANCE_ID"
+  },
+  "id": "YOUR_WORKFLOW_ID",
+  "tags": []
+}
