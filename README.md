@@ -17,6 +17,25 @@ A sophisticated, low-latency AI agent built on **n8n**. This assistant seamlessl
   - 💡 **General Knowledge**: Direct interaction with Llama 3.3.
 - **Concise Summarization**: Aggregates data from multiple sources and summarizes findings into 2-3 punchy sentences.
 - **Privacy First**: Designed with modular architecture, allowing easy replacement of API keys and instance-specific IDs.
+- **Premium Interface**: Includes a beautifully designed `voice_frontend.html` for immediate interaction.
+
+---
+
+## 🎨 Voice Frontend Interface
+
+![Voice Frontend Interface](voice_frontend.png)
+
+The project includes a standalone HTML interface (`voice_frontend.html`) that allows you to interact with your n8n workflow using your microphone.
+
+### Features:
+- **Visual Feedback**: Real-time recording indicators and voice visualizers.
+- **Instant Response**: Displays both your transcription and the assistant's response.
+- **Text-to-Speech**: Automatically speaks the assistant's response.
+
+### Setup:
+1.  Open `voice_frontend.html` in any modern web browser.
+2.  In the `<script>` section, update the `N8N_URL` variable with your n8n Webhook URL.
+3.  Click the microphone icon and start talking!
 
 ---
 
