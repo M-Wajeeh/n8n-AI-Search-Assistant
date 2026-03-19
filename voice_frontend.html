@@ -294,6 +294,7 @@
         let mediaRecorder;
         let audioChunks = [];
         let isRecording = false;
+        let mimeType = 'audio/webm'; // default; updated on MediaRecorder init
 
         micBtn.addEventListener('click', () => {
             if (!isRecording) startRecording();
@@ -303,7 +304,12 @@
         async function startRecording() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+
+                // Pick the best supported MIME type for Whisper
+                const preferred = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/ogg', 'audio/mp4'];
+                mimeType = preferred.find(t => MediaRecorder.isTypeSupported(t)) || '';
+
+                mediaRecorder = new MediaRecorder(stream, mimeType ? { mimeType } : {});
                 audioChunks = [];
 
                 mediaRecorder.ondataavailable = (e) => audioChunks.push(e.data);
@@ -315,7 +321,8 @@
                 statusBadge.innerText = "Listening...";
                 responseBubble.style.display = 'none';
             } catch (err) {
-                statusBadge.innerText = "Error: Need Mic Access";
+                statusBadge.innerText = "Error: Microphone access denied";
+                console.error('Mic access error:', err);
             }
         }
 
@@ -327,13 +334,19 @@
         }
 
         async function processAudio() {
-            const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+            // Use the actual MIME type so Whisper knows what format it's receiving
+            const ext = mimeType.includes('ogg') ? 'ogg' : mimeType.includes('mp4') ? 'mp4' : 'webm';
+            const audioBlob = new Blob(audioChunks, { type: mimeType || 'audio/webm' });
             const formData = new FormData();
-            formData.append('data', audioBlob, 'recording.wav');
+            formData.append('data', audioBlob, `recording.${ext}`);
+
+            // Send browser language for multilingual support
+            const lang = navigator.language ? navigator.language.split('-')[0] : 'en';
+            formData.append('language', lang);
 
             try {
-                // n8n Webhook URL (Production URL if Active, or Webhook-Test if Listening)
-                // IMPORTANT: Replace this with your actual n8n Webhook URL
+                // n8n Webhook URL — use webhook-test while testing in n8n, switch to /webhook/ for production
+                // IMPORTANT: Replace with your actual n8n Webhook URL
                 const N8N_URL = 'http://localhost:5678/webhook-test/voice-agent';
 
                 const response = await fetch(N8N_URL, {
@@ -346,7 +359,8 @@
                 if (!response.ok) {
                     const errorText = await response.text();
                     console.error("n8n Error Body:", errorText);
-                    throw new Error('Network response was not ok');
+                    statusBadge.innerText = `Error ${response.status}: ${errorText.slice(0, 60)}`;
+                    return;
                 }
 
                 const data = await response.json();
@@ -354,17 +368,30 @@
 
                 statusBadge.innerText = "Ready";
                 responseBubble.style.display = 'block';
-                transcription.innerText = data.transcribed_text || "---";
-                responseText.innerText = data.response;
 
-                // TTS
-                const speech = new SpeechSynthesisUtterance(data.response);
-                speech.pitch = 1.1;
-                speech.rate = 1.0;
-                window.speechSynthesis.speak(speech);
+                // Handle error responses from the recovery node
+                if (data.error) {
+                    responseBubble.style.borderLeftColor = 'var(--danger)';
+                    transcription.innerText = data.transcribed_text || '(voice input)';
+                    responseText.innerText = data.response || 'An error occurred.';
+                    statusBadge.innerText = 'Error — try again';
+                } else {
+                    responseBubble.style.borderLeftColor = 'var(--primary)';
+                    transcription.innerText = data.transcribed_text || "(voice input)";
+                    responseText.innerText = data.response || "No response received";
+
+                    // TTS — speak the assistant reply aloud
+                    if (data.response) {
+                        const speech = new SpeechSynthesisUtterance(data.response);
+                        speech.pitch = 1.1;
+                        speech.rate = 1.0;
+                        window.speechSynthesis.speak(speech);
+                    }
+                }
 
             } catch (err) {
-                statusBadge.innerText = "Failed to process";
+                statusBadge.innerText = "Failed to reach n8n";
+                console.error('Fetch error:', err);
             }
         }
     </script>

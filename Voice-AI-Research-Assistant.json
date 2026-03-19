@@ -1,12 +1,14 @@
 {
-  "name": "Voice AI Research Assistant (Final Fix)",
+  "name": "Voice AI Research Assistant (v2 — Multilingual + Logging + Recovery)",
   "nodes": [
     {
       "parameters": {
         "httpMethod": "POST",
         "path": "voice-agent",
+        "responseMode": "responseNode",
         "options": {
-          "allowedOrigins": "*"
+          "allowedOrigins": "*",
+          "binaryData": true
         }
       },
       "name": "Voice Agent Webhook",
@@ -64,6 +66,10 @@
             {
               "name": "model",
               "value": "whisper-large-v3-turbo"
+            },
+            {
+              "name": "language",
+              "value": "={{ $node[\"Voice Agent Webhook\"].json.body?.language || 'en' }}"
             }
           ]
         },
@@ -81,7 +87,7 @@
     },
     {
       "parameters": {
-        "jsCode": "// Robustly extract query from either transcription or body\nconst transcribedText = $node[\"Groq Whisper STT\"]?.json?.text;\nconst bodyQuery = $node[\"Voice Agent Webhook\"]?.json?.body?.query;\nconst finalQuery = transcribedText || bodyQuery || \"no query\";\n\nreturn { query: finalQuery };"
+        "jsCode": "// Robustly extract query from either transcription or direct text body\nconst transcribedText = $node[\"Groq Whisper STT\"]?.json?.text || null;\n\n// For text-only requests, the query may be in body.query or body fields\nconst webhookBody = $node[\"Voice Agent Webhook\"]?.json?.body || {};\nconst bodyQuery = webhookBody.query || webhookBody.text || null;\n\nconst finalQuery = transcribedText || bodyQuery || \"no query\";\n\n// Detect language: prefer explicitly sent language, fallback to 'en'\nconst language = webhookBody.language || 'en';\n\nreturn {\n  query: finalQuery,\n  transcribed_text: transcribedText || bodyQuery || '',\n  language\n};"
       },
       "name": "Final Query",
       "type": "n8n-nodes-base.code",
@@ -307,7 +313,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a helpful voice assistant. Answer the user's question in 2 to 3 concise sentences.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $node[\"Parse Intent\"].json.query }}\"\n    }\n  ],\n  \"temperature\": 0.3\n}",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a helpful voice assistant. Answer the user's question in 2 to 3 concise sentences. IMPORTANT: Always respond in the same language as the user's query. The user's language is {{ $node[\\\"Parse Intent\\\"].json.language }}.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"{{ $node[\\\"Parse Intent\\\"].json.query }}\"\n    }\n  ],\n  \"temperature\": 0.3\n}",
         "options": {}
       },
       "name": "Ask Groq",
@@ -338,14 +344,8 @@
           ]
         },
         "sendBody": true,
-        "bodyParameters": {
-          "parameters": [
-            {
-              "name": "model",
-              "value": "llama-3.3-70b-versatile"
-            }
-          ]
-        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"llama-3.3-70b-versatile\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are a helpful voice assistant. Summarize the following information in 2 to 3 concise, spoken-language sentences suitable for a voice response. Be direct and friendly. IMPORTANT: Always respond in the same language as the user's query. The user's language is {{ $node[\\\"Parse Intent\\\"].json.language }}.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"User asked: {{ $node[\\\"Final Query\\\"].json.query }}\\n\\nData: {{ JSON.stringify($input.first().json) }}\"\n    }\n  ],\n  \"temperature\": 0.4\n}",
         "options": {}
       },
       "name": "Summarize (Groq)",
@@ -361,7 +361,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={\n  \"response\": \"{{ $json.error ? 'I am sorry, I encountered an error processing your request.' : $json.choices[0].message.content }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
+        "responseBody": "={\n  \"response\": \"{{ $json.error ? 'I am sorry, I encountered an error processing your request.' : $json.choices[0].message.content }}\",\n  \"transcribed_text\": \"{{ $node[\\\"Final Query\\\"].json.transcribed_text || '' }}\",\n  \"timestamp\": \"{{ new Date().toISOString() }}\"\n}",
         "options": {}
       },
       "name": "Respond to Webhook",
@@ -372,6 +372,92 @@
         464
       ],
       "id": "node_15"
+    },
+
+    {
+      "parameters": {
+        "authentication": "airtableTokenApi",
+        "operation": "create",
+        "application": {
+          "__rl": true,
+          "value": "YOUR_AIRTABLE_LOG_APP_ID",
+          "mode": "id"
+        },
+        "table": {
+          "__rl": true,
+          "value": "YOUR_AIRTABLE_VOICELOGS_TABLE_ID",
+          "mode": "id"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "SessionID": "={{ $json.session_id }}",
+            "Query": "={{ $json.query }}",
+            "Intent": "={{ $json.intent }}",
+            "Language": "={{ $json.language }}",
+            "Timestamp": "={{ new Date().toISOString() }}"
+          }
+        }
+      },
+      "name": "Log Request to Airtable",
+      "type": "n8n-nodes-base.airtable",
+      "typeVersion": 2,
+      "position": [
+        1104,
+        700
+      ],
+      "id": "node_16",
+      "credentials": {
+        "airtableTokenApi": {
+          "id": "YOUR_AIRTABLE_CRED_ID",
+          "name": "Airtable Personal Access Token account"
+        }
+      },
+      "continueOnFail": true
+    },
+
+    {
+      "parameters": {},
+      "name": "Error Trigger",
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -208,
+        800
+      ],
+      "id": "node_17"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const err = $input.first().json;\nconst errorMessage = err.error?.message || err.message || 'An unexpected error occurred';\nconst nodeName = err.execution?.lastNodeExecuted || 'unknown node';\n\nconsole.error('[Voice Assistant Error]', nodeName, errorMessage);\n\nreturn {\n  response: 'I am sorry, I encountered a technical issue and could not complete your request. Please try again.',\n  transcribed_text: '',\n  error: true,\n  error_detail: errorMessage,\n  failed_node: nodeName,\n  timestamp: new Date().toISOString()\n};"
+      },
+      "name": "Build Error Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        64,
+        800
+      ],
+      "id": "node_18"
+    },
+
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ response: $json.response, transcribed_text: $json.transcribed_text, error: true, timestamp: $json.timestamp }) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "name": "Error Respond to Webhook",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [
+        336,
+        800
+      ],
+      "id": "node_19"
     }
   ],
   "pinData": {},
@@ -443,6 +529,11 @@
         [
           {
             "node": "Route by Intent",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Log Request to Airtable",
             "type": "main",
             "index": 0
           }
@@ -563,6 +654,29 @@
         [
           {
             "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+,
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Build Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Error Response": {
+      "main": [
+        [
+          {
+            "node": "Error Respond to Webhook",
             "type": "main",
             "index": 0
           }
