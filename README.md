@@ -35,7 +35,7 @@ A production-grade, low-latency AI voice agent built on **n8n**. It accepts voic
 | **Near-Instant STT** | Groq Whisper `whisper-large-v3-turbo` transcribes audio in under a second |
 | **Multilingual** | Detects browser language (e.g. `en`, `es`, `fr`) and responds in the same language automatically |
 | **Smart Intent Routing** | Llama 3.3 70B classifies each query and dispatches to the right tool |
-| **Web Research** | Top 5 Google results via Serper.dev, summarized by LLM |
+| **Web Research** | Top 5 search results via Serper.dev (default) or Tavily, summarized by LLM |
 | **Live Weather** | Real-time conditions via OpenWeatherMap |
 | **Airtable Integration** | Query your structured data and log every session automatically |
 | **Text-to-Speech** | Browser-native Web Speech API speaks the assistant's reply aloud |
@@ -94,7 +94,8 @@ POST /voice-agent
 | **Orchestration** | [n8n](https://n8n.io/) | Self-hosted low-code workflow engine |
 | **Voice Engine** | [Groq Whisper v3 Turbo](https://groq.com/) | Near-real-time Speech-to-Text |
 | **LLM** | [Llama 3.3 70B](https://groq.com/) | Intent classification & answer summarization |
-| **Search** | [Serper.dev](https://serper.dev/) | High-speed Google Search results |
+| **Search** | [Serper.dev](https://serper.dev/) | High-speed Google Search results (default) |
+| **Search (Alt)** | [Tavily](https://tavily.com/) | AI-optimized search with built-in answer synthesis |
 | **Weather** | [OpenWeatherMap](https://openweathermap.org/) | Current conditions & forecasts |
 | **Database** | [Airtable](https://airtable.com/) | Structured data queries & session logging |
 | **Frontend TTS** | Web Speech API | Reads responses aloud in the browser |
@@ -124,7 +125,7 @@ The query text is sent to **Llama 3.3 70B** with a strict system prompt. The mod
 
 ### 4. Execution Branch
 The **Route by Intent** switch node dispatches the request:
-- **Research** → Serper.dev fetches the top 5 Google results → formatted into a clean object.
+- **Research** → A **Choose Search Provider** node checks `body.search_provider`. If set to `"tavily"`, the query is routed to Tavily; otherwise (default) it uses Serper.dev. Both paths format results into the same shape before summarization.
 - **Weather** → OpenWeatherMap returns temperature, conditions, humidity, and wind speed.
 - **Data Query** → Airtable list operation returns matching records.
 - **General** → Llama 3.3 directly answers the question in 2–3 sentences.
@@ -157,6 +158,7 @@ You will need accounts and API keys for the following services:
 | :--- | :--- | :--- |
 | [Groq](https://console.groq.com/) | API Key | Console → API Keys |
 | [Serper.dev](https://serper.dev/) | API Key | Dashboard → API Key |
+| [Tavily](https://tavily.com/) | API Key (optional, for alternative search) | Dashboard → API Keys |
 | [OpenWeatherMap](https://openweathermap.org/api) | API Key | Account → API Keys |
 | [Airtable](https://airtable.com/) | Personal Access Token + Base/Table IDs | Account → Developer Hub |
 | [n8n](https://n8n.io/) | Self-hosted or cloud instance | n8n.io |
@@ -178,6 +180,7 @@ Search for and replace every placeholder in the imported workflow:
 | :--- | :--- |
 | `YOUR_GROQ_API_KEY` | Your Groq API key (appears in 4 nodes) |
 | `YOUR_SERPER_API_KEY` | Your Serper.dev API key |
+| `YOUR_TAVILY_API_KEY` | Your Tavily API key (only needed if using Tavily search) |
 | `YOUR_OPENWEATHERMAP_API_KEY` | Your OpenWeatherMap API key |
 | `YOUR_AIRTABLE_APP_ID` | The base ID of your Airtable data base (starts with `app`) |
 | `YOUR_AIRTABLE_TABLE_ID` | The table ID for data queries (starts with `tbl`) |
@@ -305,7 +308,8 @@ POST /webhook/voice-agent
 | Classify Intent | `temperature` | `0.1` | Keep low for deterministic classification |
 | Ask Groq (General) | `temperature` | `0.3` | Slight creativity for conversational replies |
 | Summarize (Groq) | `temperature` | `0.4` | Balanced between factual and natural-sounding |
-| Search Web | `num` | `5` | Number of search results to fetch (max 10 on free Serper tier) |
+| Search Web (Serper) | `num` | `5` | Number of search results to fetch (max 10 on free Serper tier) |
+| Search Web (Tavily) | `max_results` | `5` | Number of search results from Tavily |
 | Fetch Weather | `units` | `metric` | Change to `imperial` for Fahrenheit |
 
 ---
@@ -344,6 +348,30 @@ Language detection happens at two points:
 3. **Summarization**: The system prompt instructs the LLM to respond in the detected language.
 
 **Currently supported languages**: Any language supported by Whisper v3 and Llama 3.3 70B (covers 50+ languages including Spanish, French, German, Arabic, Chinese, Japanese, and more).
+
+---
+
+## 🔀 Switching Search Providers
+
+The workflow supports two search providers for the **research** intent:
+
+| Provider | Trigger | Notes |
+| :--- | :--- | :--- |
+| **Serper.dev** (default) | `search_provider` is absent or `"serper"` | Uses Google Search via Serper.dev |
+| **Tavily** | `search_provider` is `"tavily"` | AI-optimized search; returns an `answer` field alongside results |
+
+To use Tavily, include `"search_provider": "tavily"` in your request body:
+
+```json
+{
+  "query": "Latest advances in quantum computing",
+  "language": "en",
+  "session_id": "user-abc-123",
+  "search_provider": "tavily"
+}
+```
+
+Make sure you have replaced the `YOUR_TAVILY_API_KEY` placeholder in the workflow JSON with your actual Tavily API key.
 
 ---
 
