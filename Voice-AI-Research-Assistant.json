@@ -132,7 +132,7 @@
     },
     {
       "parameters": {
-        "jsCode": "const response = $node[\"Classify Intent (Groq)\"].json.choices[0].message.content || \"general_question\";\nconst intent = response.toLowerCase().trim();\nconst validIntents = [\"research\", \"weather\", \"data_query\", \"general_question\"];\n\nreturn {\n  intent: validIntents.includes(intent) ? intent : \"general_question\",\n  query: $node[\"Final Query\"].json.query,\n  session_id: $node[\"Voice Agent Webhook\"].json.body.session_id || \"default\",\n  language: $node[\"Voice Agent Webhook\"].json.body.language || \"en\"\n};"
+        "jsCode": "const response = $node[\"Classify Intent (Groq)\"].json.choices[0].message.content || \"general_question\";\nconst intent = response.toLowerCase().trim();\nconst validIntents = [\"research\", \"weather\", \"data_query\", \"general_question\"];\n\nreturn {\n  intent: validIntents.includes(intent) ? intent : \"general_question\",\n  query: $node[\"Final Query\"].json.query,\n  session_id: $node[\"Voice Agent Webhook\"].json.body.session_id || \"default\",\n  language: $node[\"Voice Agent Webhook\"].json.body.language || \"en\",\n  search_provider: $node[\"Voice Agent Webhook\"].json.body?.search_provider || 'serper'\n};"
       },
       "name": "Parse Intent",
       "type": "n8n-nodes-base.code",
@@ -465,7 +465,7 @@
         "conditions": {
           "string": [
             {
-              "value1": "={{ $node[\"Voice Agent Webhook\"].json.body?.search_provider || 'serper' }}",
+              "value1": "={{ $json.search_provider }}",
               "operation": "equals",
               "value2": "tavily"
             }
@@ -490,6 +490,10 @@
         "headerParameters": {
           "parameters": [
             {
+              "name": "Authorization",
+              "value": "Bearer YOUR_TAVILY_API_KEY"
+            },
+            {
               "name": "Content-Type",
               "value": "application/json"
             }
@@ -497,7 +501,7 @@
         },
         "sendBody": true,
         "specifyBody": "json",
-        "jsonBody": "={{ JSON.stringify({ api_key: 'YOUR_TAVILY_API_KEY', query: $node[\"Parse Intent\"].json.query, max_results: 5, include_answer: true }) }}",
+        "jsonBody": "={{ JSON.stringify({ query: $node[\"Parse Intent\"].json.query, max_results: 5 }) }}",
         "options": {}
       },
       "name": "Search Web (Tavily)",
@@ -513,7 +517,7 @@
 
     {
       "parameters": {
-        "jsCode": "const tavilyResponse = $node[\"Search Web (Tavily)\"].json;\n\nif (tavilyResponse.error || !tavilyResponse.results) {\n  return {\n    error: true,\n    pipeline: \"research\",\n    message: \"I'm sorry, I couldn't retrieve that information right now.\"\n  };\n}\n\nreturn {\n  results: tavilyResponse.results.slice(0, 5).map(r => ({\n    title: r.title,\n    snippet: r.content,\n    url: r.url\n  })),\n  tavily_answer: tavilyResponse.answer || null\n};"
+        "jsCode": "const tavilyResponse = $node[\"Search Web (Tavily)\"].json;\n\nif (tavilyResponse.error || !tavilyResponse.results) {\n  return {\n    error: true,\n    pipeline: \"research\",\n    message: \"I'm sorry, I couldn't retrieve that information right now.\"\n  };\n}\n\nreturn {\n  results: tavilyResponse.results.slice(0, 5).map(r => ({\n    title: r.title,\n    snippet: r.content,\n    url: r.url\n  }))\n};"
       },
       "name": "Format Tavily Results",
       "type": "n8n-nodes-base.code",

@@ -309,7 +309,7 @@ POST /webhook/voice-agent
 | Ask Groq (General) | `temperature` | `0.3` | Slight creativity for conversational replies |
 | Summarize (Groq) | `temperature` | `0.4` | Balanced between factual and natural-sounding |
 | Search Web (Serper) | `num` | `5` | Number of search results to fetch (max 10 on free Serper tier) |
-| Search Web (Tavily) | `max_results` | `5` | Number of search results; `include_answer: true` returns an AI-generated answer |
+| Search Web (Tavily) | `max_results` | `5` | Number of search results from Tavily |
 | Fetch Weather | `units` | `metric` | Change to `imperial` for Fahrenheit |
 
 ---
