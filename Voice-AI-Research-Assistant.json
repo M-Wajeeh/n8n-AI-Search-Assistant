@@ -458,6 +458,71 @@
         800
       ],
       "id": "node_19"
+    },
+
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $node[\"Voice Agent Webhook\"].json.body?.search_provider || 'serper' }}",
+              "operation": "equals",
+              "value2": "tavily"
+            }
+          ]
+        }
+      },
+      "name": "Choose Search Provider",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1208,
+        160
+      ],
+      "id": "node_20"
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ api_key: 'YOUR_TAVILY_API_KEY', query: $node[\"Parse Intent\"].json.query, max_results: 5, include_answer: true }) }}",
+        "options": {}
+      },
+      "name": "Search Web (Tavily)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1312,
+        0
+      ],
+      "id": "node_21",
+      "continueOnFail": true
+    },
+
+    {
+      "parameters": {
+        "jsCode": "const tavilyResponse = $node[\"Search Web (Tavily)\"].json;\n\nif (tavilyResponse.error || !tavilyResponse.results) {\n  return {\n    error: true,\n    pipeline: \"research\",\n    message: \"I'm sorry, I couldn't retrieve that information right now.\"\n  };\n}\n\nreturn {\n  results: tavilyResponse.results.slice(0, 5).map(r => ({\n    title: r.title,\n    snippet: r.content,\n    url: r.url\n  })),\n  tavily_answer: tavilyResponse.answer || null\n};"
+      },
+      "name": "Format Tavily Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        0
+      ],
+      "id": "node_22"
     }
   ],
   "pinData": {},
@@ -544,7 +609,7 @@
       "main": [
         [
           {
-            "node": "Search Web",
+            "node": "Choose Search Provider",
             "type": "main",
             "index": 0
           }
@@ -639,6 +704,46 @@
       ]
     },
     "Ask Groq": {
+      "main": [
+        [
+          {
+            "node": "Summarize (Groq)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Choose Search Provider": {
+      "main": [
+        [
+          {
+            "node": "Search Web (Tavily)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Search Web",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Web (Tavily)": {
+      "main": [
+        [
+          {
+            "node": "Format Tavily Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Tavily Results": {
       "main": [
         [
           {
