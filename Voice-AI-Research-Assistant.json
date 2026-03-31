@@ -458,6 +458,63 @@
         800
       ],
       "id": "node_19"
+    },
+
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.tavily.com/search",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ api_key: 'YOUR_TAVILY_API_KEY', query: $node[\"Parse Intent\"].json.query, max_results: 5 }) }}",
+        "options": {}
+      },
+      "name": "Search Web (Tavily)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        1312,
+        0
+      ],
+      "id": "node_20",
+      "continueOnFail": true
+    },
+
+    {
+      "parameters": {
+        "jsCode": "if ($node[\"Search Web (Tavily)\"].json.error || !$node[\"Search Web (Tavily)\"].json.results) {\n  return {\n    error: true,\n    pipeline: \"research\",\n    message: \"Tavily search did not return results.\"\n  };\n}\n\nreturn {\n  results: $node[\"Search Web (Tavily)\"].json.results.slice(0, 5).map(r => ({\n    title: r.title,\n    snippet: r.content,\n    url: r.url\n  }))\n};"
+      },
+      "name": "Format Tavily Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1504,
+        0
+      ],
+      "id": "node_21"
+    },
+
+    {
+      "parameters": {
+        "jsCode": "// Merge search results from Serper and Tavily.\n// Prefer Serper results; fall back to Tavily if Serper errored.\nconst items = $input.all().map(i => i.json);\n\nconst serper = items.find(i => !i.error && i.results && !i._tavily);\nconst tavily = items.find(i => !i.error && i.results && i._tavily);\n\n// Check Serper first (from Format Search Results)\nconst serperData = $node[\"Format Search Results\"]?.json || null;\nconst tavilyData = $node[\"Format Tavily Results\"]?.json || null;\n\nif (serperData && !serperData.error && serperData.results) {\n  return { results: serperData.results, source: 'serper' };\n}\n\nif (tavilyData && !tavilyData.error && tavilyData.results) {\n  return { results: tavilyData.results, source: 'tavily' };\n}\n\n// Both failed\nreturn {\n  error: true,\n  pipeline: \"research\",\n  message: \"I'm sorry, I couldn't retrieve search results from either provider right now.\"\n};"
+      },
+      "name": "Select Search Results",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1696,
+        80
+      ],
+      "id": "node_22"
     }
   ],
   "pinData": {},
@@ -547,6 +604,11 @@
             "node": "Search Web",
             "type": "main",
             "index": 0
+          },
+          {
+            "node": "Search Web (Tavily)",
+            "type": "main",
+            "index": 0
           }
         ],
         [
@@ -584,6 +646,39 @@
       ]
     },
     "Format Search Results": {
+      "main": [
+        [
+          {
+            "node": "Select Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Web (Tavily)": {
+      "main": [
+        [
+          {
+            "node": "Format Tavily Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Tavily Results": {
+      "main": [
+        [
+          {
+            "node": "Select Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Search Results": {
       "main": [
         [
           {
