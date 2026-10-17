@@ -198,19 +198,19 @@
         "jsonBody": "={{ JSON.stringify({ q: $node[\"Parse Intent\"].json.query, num: 5 }) }}",
         "options": {}
       },
-      "name": "Search Web",
+      "name": "Search Web (Serper)",
       "type": "n8n-nodes-base.httpRequest",
       "typeVersion": 4.1,
       "position": [
-        1312,
+        1680,
         160
       ],
-      "id": "node_7",
+      "id": "parallel_serper",
       "continueOnFail": true
     },
     {
       "parameters": {
-        "jsCode": "if ($node[\"Search Web\"].json.error || !$node[\"Search Web\"].json.organic) {\n  return {\n    error: true,\n    pipeline: \"research\",\n    message: \"I'm sorry, I couldn't retrieve that information right now.\"\n  };\n}\n\nreturn {\n  results: $node[\"Search Web\"].json.organic.slice(0, 5).map(r => ({\n    title: r.title,\n    snippet: r.snippet,\n    url: r.link\n  }))\n};"
+        "jsCode": "if ($node[\"Search Web (Serper)\"].json.error || !$node[\"Search Web (Serper)\"].json.organic) {\n  return {\n    error: true,\n    pipeline: \"research\",\n    message: \"I'm sorry, I couldn't retrieve that information right now.\"\n  };\n}\n\nreturn {\n  results: $node[\"Search Web (Serper)\"].json.organic.slice(0, 5).map(r => ({\n    title: r.title,\n    snippet: r.snippet,\n    url: r.link\n  }))\n};"
       },
       "name": "Format Search Results",
       "type": "n8n-nodes-base.code",
@@ -457,16 +457,16 @@
     },
     {
       "parameters": {
-        "jsCode": "// Installation settings. Explicitly disable here to prevent all research requests.\nconst enabled = true;\nconst provider = 'auto'; // auto, parallel, serper, or disabled\nconst body = $node[\"Voice Agent Webhook\"].json.body || {};\nconst input = $input.first().json;\nconst fail = message => ({ ...input, search_provider: 'disabled', error: true, message });\nif (!enabled || provider === 'disabled' || body.search_enabled === false) {\n  return fail('Web research is disabled.');\n}\nconst requested = body.search_provider ?? provider;\nif (!['auto', 'parallel', 'serper', 'disabled'].includes(requested)) {\n  return fail('Unknown search provider. Choose parallel or serper.');\n}\nif (requested === 'disabled') return fail('Web research is disabled.');\n// Read the existing node settings without executing it or copying its credentials.\nconst settings = $node[\"Search Web\"].parameter;\nconst headers = settings.headerParameters?.parameters || [];\nconst key = headers.find(h => String(h.name).toLowerCase() === 'x-api-key')?.value;\nconst hasKey = typeof key === 'string' && key.trim() !== '' && key !== 'YOUR_SERPER_API_KEY';\nconst hasAuth = settings.authentication && settings.authentication !== 'none';\nconst selected = requested === 'auto' ? (hasKey || hasAuth ? 'serper' : 'parallel') : requested;\nreturn { ...input, search_provider: selected };\n"
+        "jsCode": "// Installation settings. Explicitly disable here to prevent all research requests.\nconst enabled = true;\nconst provider = 'auto'; // auto, parallel, serper, or disabled\nconst body = $node[\"Voice Agent Webhook\"].json.body || {};\nconst input = $input.first().json;\nconst fail = message => ({ ...input, search_provider: 'disabled', error: true, message });\nif (!enabled || provider === 'disabled' || body.search_enabled === false) {\n  return fail('Web research is disabled.');\n}\nconst requested = body.search_provider ?? provider;\nif (!['auto', 'parallel', 'serper', 'disabled'].includes(requested)) {\n  return fail('Unknown search provider. Choose parallel or serper.');\n}\nif (requested === 'disabled') return fail('Web research is disabled.');\n// Read the existing node settings without executing it or copying its credentials.\nconst settings = $node[\"Search Web (Serper)\"].parameter;\nlet key;\nif (settings.specifyHeaders === 'json') {\n  try {\n    const raw = settings.jsonHeaders;\n    const headers = typeof raw === 'string' ? JSON.parse(raw) : raw;\n    key = Object.entries(headers || {}).find(([name]) => name.toLowerCase() === 'x-api-key')?.[1];\n  } catch {\n    // An explicitly configured but invalid Serper header must not select another service.\n    return { ...input, search_provider: 'serper', search_allowed: true };\n  }\n} else {\n  key = settings.headerParameters?.parameters?.find(h => String(h.name).toLowerCase() === 'x-api-key')?.value;\n}\nconst hasKey = typeof key === 'string' && key.trim() !== '' && key.trim() !== 'YOUR_SERPER_API_KEY';\nconst hasAuth = settings.authentication && settings.authentication !== 'none';\nconst customEndpoint = settings.url !== 'https://google.serper.dev/search';\nconst selected = requested === 'auto' ? (hasKey || hasAuth || customEndpoint ? 'serper' : 'parallel') : requested;\nreturn { ...input, search_provider: selected, search_allowed: true };\n"
       },
-      "name": "Choose Search Provider",
+      "name": "Search Web",
       "type": "n8n-nodes-base.code",
       "typeVersion": 2,
       "position": [
         1264,
         48
       ],
-      "id": "parallel_20"
+      "id": "node_7"
     },
     {
       "parameters": {
@@ -636,6 +636,19 @@
         160
       ],
       "id": "parallel_27"
+    },
+    {
+      "parameters": {
+        "jsCode": "const input = $input.first().json;\nif (input.search_allowed !== true) {\n  return { ...input, search_provider: 'disabled', error: true, message: input.message || 'Web research is disabled.' };\n}\nreturn input;\n"
+      },
+      "name": "Check Research Permission",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1472,
+        -112
+      ],
+      "id": "parallel_permission"
     }
   ],
   "pinData": {},
@@ -722,7 +735,7 @@
       "main": [
         [
           {
-            "node": "Choose Search Provider",
+            "node": "Search Web",
             "type": "main",
             "index": 0
           }
@@ -744,17 +757,6 @@
         [
           {
             "node": "Ask Groq",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Search Web": {
-      "main": [
-        [
-          {
-            "node": "Format Search Results",
             "type": "main",
             "index": 0
           }
@@ -860,17 +862,6 @@
         ]
       ]
     },
-    "Choose Search Provider": {
-      "main": [
-        [
-          {
-            "node": "Route Search Provider",
-            "type": "main",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Route Search Provider": {
       "main": [
         [
@@ -882,7 +873,7 @@
         ],
         [
           {
-            "node": "Search Web",
+            "node": "Search Web (Serper)",
             "type": "main",
             "index": 0
           }
@@ -984,6 +975,39 @@
         [
           {
             "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Web (Serper)": {
+      "main": [
+        [
+          {
+            "node": "Format Search Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Web": {
+      "main": [
+        [
+          {
+            "node": "Check Research Permission",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Research Permission": {
+      "main": [
+        [
+          {
+            "node": "Route Search Provider",
             "type": "main",
             "index": 0
           }

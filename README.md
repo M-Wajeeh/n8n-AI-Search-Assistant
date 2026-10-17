@@ -211,9 +211,19 @@ https://your-n8n-instance.com/webhook-test/voice-agent
 
 ---
 
+### Updating an existing workflow
+
+Export your current workflow from n8n, then run the update utility with Python 3.10 or later:
+
+```sh
+python3 scripts/update_workflow.py exported-workflow.json updated-workflow.json
+```
+
+Import the resulting file after reviewing it. The utility copies your Serper parameters and credentials into **Search Web (Serper)**, preserves the original **Search Web** node's disabled state as a research-wide gateway, and keeps other nodes and settings. It refuses existing output files and unsupported research rewiring or custom search formatters; adapt those workflows manually while keeping their disable and provider choices. Export a backup before updating.
+
 ### Search provider settings
 
-The **Choose Search Provider** node stores `provider` (`auto`, `parallel`, `serper`, or `disabled`) and `enabled` (`true` or `false`) at the top of its code. In `auto`, an existing **Search Web** node with an `X-API-KEY` value other than the placeholder, or an authentication setting, selects Serper. Otherwise the workflow uses [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp), with Fast mode search and no account or API key. Keep that existing node's configured headers/credentials when updating a workflow.
+The **Search Web** node stores `provider` (`auto`, `parallel`, `serper`, or `disabled`) and `enabled` (`true` or `false`) at the top of its code. In `auto`, the gateway selects **Search Web (Serper)** when its active headers contain an `X-API-KEY` other than the placeholder, or when it has an authentication setting or a customized endpoint. Otherwise the workflow uses [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp), with Fast mode search and no account or API key. JSON headers and field-list headers are both supported. A disabled **Search Web** gateway blocks all research, including per-request overrides.
 
 A text request can override the provider with `"search_provider": "parallel"` or `"serper"`. Set `"search_enabled": false` or `"search_provider": "disabled"` to disable research for that request. Installation settings `enabled = false` or `provider = 'disabled'` take priority over all request overrides. Unknown providers return an error without making a search request. Explicit provider failures never switch to another provider.
 
@@ -319,8 +329,8 @@ POST /webhook/voice-agent
 | Classify Intent | `temperature` | `0.1` | Keep low for deterministic classification |
 | Ask Groq (General) | `temperature` | `0.3` | Slight creativity for conversational replies |
 | Summarize (Groq) | `temperature` | `0.4` | Balanced between factual and natural-sounding |
-| Choose Search Provider | `provider` / `enabled` in code | `auto` / `true` | Stored provider preference and installation-wide research switch |
-| Search Web | `num` | `5` | Number of Serper results to fetch |
+| Search Web | `provider` / `enabled` in code | `auto` / `true` | Stored provider preference and installation-wide research switch |
+| Search Web (Serper) | `num` | `5` | Number of Serper results to fetch |
 | Parallel HTTP nodes | `timeout` | `30000` ms | Per-request timeout; failures return a research error |
 | Fetch Weather | `units` | `metric` | Change to `imperial` for Fahrenheit |
 
@@ -378,7 +388,7 @@ Language detection happens at two points:
 
 ## Workflow checks
 
-Run `node --test tests/search-workflow.test.cjs` with Node.js 22 or later. These isolated checks exercise the embedded provider selection, MCP response parsing, result contract, and research graph. They do not call external services or replace a run in your configured n8n instance.
+Run `node --test tests/search-workflow.test.cjs` with Node.js 22 or later, and `python3 -m unittest discover -s tests` for the updater. These isolated checks exercise the embedded provider selection, MCP response parsing, result contract, and research graph. They do not call external services or replace a run in your configured n8n instance.
 
 ---
 

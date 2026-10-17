@@ -10,13 +10,13 @@ const node = name => workflow.nodes.find(n => n.name === name);
 function code(name, input, body = {}, change = s => s, serper = {}) {
   const nodes = {
     'Voice Agent Webhook': { json: { body } },
-    'Search Web': { parameter: { ...node('Search Web').parameters, ...serper } },
+    'Search Web (Serper)': { parameter: { ...node('Search Web (Serper)').parameters, ...serper } },
   };
   return JSON.parse(JSON.stringify(vm.runInNewContext(`(function() { ${change(node(name).parameters.jsCode)} })()`, {
     $node: nodes, $input: { first: () => ({ json: input }) },
   })));
 }
-const choose = (body, change, serper) => code('Choose Search Provider', { query: 'n8n releases', language: 'en' }, body, change, serper);
+const choose = (body, change, serper) => code('Search Web', { query: 'n8n releases', language: 'en' }, body, change, serper);
 const format = result => code('Format Parallel Results', { body: JSON.stringify({ jsonrpc: '2.0', id: 2, result }) });
 test('fresh installation uses Parallel; configured Serper keeps its selection', () => {
   assert.equal(choose({}).search_provider, 'parallel');
@@ -60,10 +60,23 @@ test('handshake accepts negotiated sessions and rejects failed initialization', 
   assert.throws(() => code('Check MCP Initialization', { body: JSON.stringify({ id: 1, error: { message: 'denied' } }) }), /initialization failed/);
 });
 test('research results feed the guarded consumer and configured Serper stays intact', () => {
-  assert.equal(workflow.connections['Route by Intent'].main[0][0].node, 'Choose Search Provider');
-  assert.equal(workflow.connections['Route Search Provider'].main[1][0].node, 'Search Web');
+  assert.equal(workflow.connections['Route by Intent'].main[0][0].node, 'Search Web');
+  assert.equal(workflow.connections['Search Web'].main[0][0].node, 'Check Research Permission');
+  assert.equal(workflow.connections['Route Search Provider'].main[1][0].node, 'Search Web (Serper)');
   assert.equal(workflow.connections['Format Parallel Results'].main[0][0].node, 'Research Has Results?');
   assert.equal(workflow.connections['Research Has Results?'].main[0][0].node, 'Summarize (Groq)');
   assert.equal(workflow.connections['Research Has Results?'].main[1][0].node, 'Respond to Webhook');
-  assert.equal(node('Search Web').parameters.url, 'https://google.serper.dev/search');
+  assert.equal(node('Search Web (Serper)').parameters.url, 'https://google.serper.dev/search');
+});
+
+test('active JSON header mode preserves configured Serper without using stale hidden fields', () => {
+  assert.equal(choose({}, undefined, { specifyHeaders: 'json', jsonHeaders: '{"X-API-KEY":"json-key"}' }).search_provider, 'serper');
+  assert.equal(choose({}, undefined, { specifyHeaders: 'json', jsonHeaders: '{}', headerParameters: { parameters: [{ name: 'X-API-KEY', value: 'stale-key' }] } }).search_provider, 'parallel');
+  assert.equal(choose({}, undefined, { specifyHeaders: 'json', jsonHeaders: 'invalid' }).search_provider, 'serper');
+});
+test('a disabled gateway passing input cannot authorize research', () => {
+  const denied = code('Check Research Permission', { query: 'n8n releases', intent: 'research' });
+  assert.equal(denied.error, true); assert.equal(denied.search_provider, 'disabled');
+  const allowed = choose({});
+  assert.equal(code('Check Research Permission', allowed).search_provider, 'parallel');
 });
