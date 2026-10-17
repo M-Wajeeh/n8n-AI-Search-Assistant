@@ -35,7 +35,7 @@ A production-grade, low-latency AI voice agent built on **n8n**. It accepts voic
 | **Near-Instant STT** | Groq Whisper `whisper-large-v3-turbo` transcribes audio in under a second |
 | **Multilingual** | Detects browser language (e.g. `en`, `es`, `fr`) and responds in the same language automatically |
 | **Smart Intent Routing** | Llama 3.3 70B classifies each query and dispatches to the right tool |
-| **Web Research** | Top 5 Google results via Serper.dev, summarized by LLM |
+| **Web Research** | Keyless Parallel Search MCP by default; configured Serper.dev remains available |
 | **Live Weather** | Real-time conditions via OpenWeatherMap |
 | **Airtable Integration** | Query your structured data and log every session automatically |
 | **Text-to-Speech** | Browser-native Web Speech API speaks the assistant's reply aloud |
@@ -94,7 +94,7 @@ POST /voice-agent
 | **Orchestration** | [n8n](https://n8n.io/) | Self-hosted low-code workflow engine |
 | **Voice Engine** | [Groq Whisper v3 Turbo](https://groq.com/) | Near-real-time Speech-to-Text |
 | **LLM** | [Llama 3.3 70B](https://groq.com/) | Intent classification & answer summarization |
-| **Search** | [Serper.dev](https://serper.dev/) | High-speed Google Search results |
+| **Search** | [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp) / [Serper.dev](https://serper.dev/) | Free anonymous web search / Google Search results with your Serper key |
 | **Weather** | [OpenWeatherMap](https://openweathermap.org/) | Current conditions & forecasts |
 | **Database** | [Airtable](https://airtable.com/) | Structured data queries & session logging |
 | **Frontend TTS** | Web Speech API | Reads responses aloud in the browser |
@@ -124,7 +124,7 @@ The query text is sent to **Llama 3.3 70B** with a strict system prompt. The mod
 
 ### 4. Execution Branch
 The **Route by Intent** switch node dispatches the request:
-- **Research** → Serper.dev fetches the top 5 Google results → formatted into a clean object.
+- **Research** → the selected search provider returns up to 5 results → normalized to `{title, snippet, url}` before summarization. Fresh imports use Parallel Search MCP; a configured Serper key keeps Serper as the automatic choice.
 - **Weather** → OpenWeatherMap returns temperature, conditions, humidity, and wind speed.
 - **Data Query** → Airtable list operation returns matching records.
 - **General** → Llama 3.3 directly answers the question in 2–3 sentences.
@@ -151,12 +151,12 @@ The webhook responds with:
 
 ### 1. Prerequisites
 
-You will need accounts and API keys for the following services:
+Use n8n 1.119.2 or later. You will need accounts and API keys for the following services; Parallel web search needs no account or API key:
 
 | Service | What you need | Where to get it |
 | :--- | :--- | :--- |
 | [Groq](https://console.groq.com/) | API Key | Console → API Keys |
-| [Serper.dev](https://serper.dev/) | API Key | Dashboard → API Key |
+| [Serper.dev](https://serper.dev/) (optional) | API Key, only for Serper search | Dashboard → API Key |
 | [OpenWeatherMap](https://openweathermap.org/api) | API Key | Account → API Keys |
 | [Airtable](https://airtable.com/) | Personal Access Token + Base/Table IDs | Account → Developer Hub |
 | [n8n](https://n8n.io/) | Self-hosted or cloud instance | n8n.io |
@@ -177,7 +177,7 @@ Search for and replace every placeholder in the imported workflow:
 | Placeholder | Replace with |
 | :--- | :--- |
 | `YOUR_GROQ_API_KEY` | Your Groq API key (appears in 4 nodes) |
-| `YOUR_SERPER_API_KEY` | Your Serper.dev API key |
+| `YOUR_SERPER_API_KEY` | Optional Serper.dev API key; leave unchanged for anonymous Parallel search |
 | `YOUR_OPENWEATHERMAP_API_KEY` | Your OpenWeatherMap API key |
 | `YOUR_AIRTABLE_APP_ID` | The base ID of your Airtable data base (starts with `app`) |
 | `YOUR_AIRTABLE_TABLE_ID` | The table ID for data queries (starts with `tbl`) |
@@ -210,6 +210,30 @@ https://your-n8n-instance.com/webhook-test/voice-agent
 ```
 
 ---
+
+### Updating an existing workflow
+
+Export your current workflow from n8n, then run the update utility with Python 3.10 or later:
+
+```sh
+python3 scripts/update_workflow.py exported-workflow.json updated-workflow.json
+```
+
+Import the resulting file after reviewing it. The utility copies your Serper parameters and credentials into **Search Web (Serper)**, preserves the original **Search Web** node's disabled state as a research-wide gateway, and keeps other nodes and settings. It refuses existing output files, missing or renamed required research nodes, unsupported research rewiring, custom search formatters, or additional references to the original Search Web node; adapt those workflows manually while keeping their disable and provider choices. Export a backup before updating.
+
+### Search provider settings
+
+The **Search Web** node stores `provider` (`auto`, `parallel`, `serper`, or `disabled`) and `enabled` (`true` or `false`) at the top of its code. In `auto`, the gateway selects **Search Web (Serper)** when its active headers contain an `X-API-KEY` other than the placeholder, or when it has an authentication setting or a customized endpoint. Otherwise the workflow uses [Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp), with Fast mode search and no account or API key. JSON headers and field-list headers are both supported. A disabled **Search Web** gateway blocks all research, including per-request overrides.
+
+A text request can override the provider with `"search_provider": "parallel"` or `"serper"`. Set `"search_enabled": false` or `"search_provider": "disabled"` to disable research for that request. Installation settings `enabled = false` or `provider = 'disabled'` take priority over all request overrides. Unknown providers return an error without making a search request. Explicit provider failures never switch to another provider.
+
+Parallel uses native HTTP Request nodes to initialize MCP and call `web_search` at `https://search.parallel.ai/mcp`. It sends the research query to Parallel and passes source URLs and excerpts to the existing Groq summarizer. It does not fetch pages or provide Serper-specific Google features. Anonymous usage is subject to service limits; a tool error produces a research error response. Connection, initialization, and notification failures return an error response without trying another provider. Inspect the failed node in n8n for details. Keep n8n's normal execution permissions and outbound-network controls in place.
+
+For example, after configuring Groq and Airtable, send this to the active webhook:
+
+```json
+{"query":"What is new in n8n?","search_provider":"parallel","language":"en"}
+```
 
 ### 3. Airtable Setup
 
@@ -305,7 +329,9 @@ POST /webhook/voice-agent
 | Classify Intent | `temperature` | `0.1` | Keep low for deterministic classification |
 | Ask Groq (General) | `temperature` | `0.3` | Slight creativity for conversational replies |
 | Summarize (Groq) | `temperature` | `0.4` | Balanced between factual and natural-sounding |
-| Search Web | `num` | `5` | Number of search results to fetch (max 10 on free Serper tier) |
+| Search Web | `provider` / `enabled` in code | `auto` / `true` | Stored provider preference and installation-wide research switch |
+| Search Web (Serper) | `num` | `5` | Number of Serper results to fetch |
+| Parallel HTTP nodes | `timeout` | `30000` ms | Per-request timeout; failures return a research error |
 | Fetch Weather | `units` | `metric` | Change to `imperial` for Fahrenheit |
 
 ---
@@ -357,6 +383,12 @@ Language detection happens at two points:
 | Frontend lacks session persistence | Generate and store a UUID in `localStorage` for the `session_id` |
 | No rate limiting on the webhook | Add n8n's rate-limit middleware or an API gateway (e.g. Kong, Cloudflare) in front |
 | TTS uses browser default voice | Integrate a dedicated TTS API (e.g. ElevenLabs, OpenAI TTS) for higher-quality audio output |
+
+---
+
+## Workflow checks
+
+Run `node --test tests/search-workflow.test.cjs` with Node.js 22 or later, and `python3 -m unittest discover -s tests` for the updater. These isolated checks exercise the embedded provider selection, MCP response parsing, result contract, and research graph. They do not call external services or replace a run in your configured n8n instance.
 
 ---
 
