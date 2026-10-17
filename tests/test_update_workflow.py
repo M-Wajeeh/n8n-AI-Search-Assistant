@@ -22,8 +22,9 @@ def legacy():
     formatter['parameters']['jsCode'] = formatter['parameters']['jsCode'].replace('Search Web (Serper)', 'Search Web')
     return {'name': 'My customized assistant', 'id': 'saved-workflow', 'active': False,
             'settings': {'callerPolicy': 'none', 'executionTimeout': 90},
-            'nodes': [serper, formatter, {'id': 'route', 'name': 'Route by Intent', 'parameters': {}},
-                      {'id': 'summary', 'name': 'Summarize (Groq)', 'parameters': {'jsonBody': 'my custom model and prompt'}},
+            'nodes': [serper, formatter, {'id': 'route', 'name': 'Route by Intent', 'type': 'n8n-nodes-base.switch', 'parameters': {}},
+                      {'id': 'summary', 'name': 'Summarize (Groq)', 'type': 'n8n-nodes-base.httpRequest', 'parameters': {'jsonBody': 'my custom model and prompt'}},
+                      *[copy.deepcopy(n) for n in template['nodes'] if n['name'] in ('Respond to Webhook', 'Parse Intent', 'Voice Agent Webhook', 'Final Query')],
                       {'id': 'custom', 'name': 'Custom integration', 'credentials': {'example': {'id': 'saved'}}}],
             'connections': {source: {'main': [updater.edge(destination)]}
                             for source, destination in [('Route by Intent', 'Search Web'),
@@ -76,6 +77,32 @@ class UpdateWorkflowTests(unittest.TestCase):
         self.assertNotIn('Fetch Weather', names)
         self.assertIn('Custom integration', names)
         self.assertIn('Search Web (Parallel)', names)
+
+    def test_refuses_missing_or_renamed_fixed_dependencies(self):
+        for name in ('Respond to Webhook', 'Parse Intent', 'Voice Agent Webhook', 'Final Query'):
+            for rename in (False, True):
+                value = legacy()
+                target = next(n for n in value['nodes'] if n['name'] == name)
+                if rename:
+                    target['name'] = 'My ' + name
+                else:
+                    value['nodes'].remove(target)
+                with self.subTest(name=name, rename=rename):
+                    with self.assertRaisesRegex(ValueError, 'Required research dependency'):
+                        updater.upgrade(value)
+
+    def test_refuses_incompatible_dependencies_and_introduces_no_dangling_edges(self):
+        value = legacy()
+        next(n for n in value['nodes'] if n['name'] == 'Respond to Webhook')['type'] = 'custom.responder'
+        with self.assertRaisesRegex(ValueError, 'incompatible'):
+            updater.upgrade(value)
+        result = updater.upgrade(legacy())
+        names = {n['name'] for n in result['nodes']}
+        for outputs in result['connections'].values():
+            for branches in outputs.values():
+                for branch in branches:
+                    for connection in branch:
+                        self.assertIn(connection['node'], names)
 
     def test_cli_writes_separate_output_and_refuses_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:

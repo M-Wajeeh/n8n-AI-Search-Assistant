@@ -39,12 +39,20 @@ def upgrade(existing, template=None):
     old_nodes = {node['name']: node for node in existing['nodes']}
     if len(old_nodes) != len(existing['nodes']):
         raise ValueError('Duplicate node names are unsupported.')
-    for name in ('Search Web', 'Format Search Results', 'Route by Intent', 'Summarize (Groq)'):
-        if name not in old_nodes:
-            raise ValueError('Required research node is missing: ' + name)
+    required_types = {
+        'Search Web': 'n8n-nodes-base.httpRequest',
+        'Format Search Results': 'n8n-nodes-base.code',
+        'Route by Intent': 'n8n-nodes-base.switch',
+        'Summarize (Groq)': 'n8n-nodes-base.httpRequest',
+        'Respond to Webhook': 'n8n-nodes-base.respondToWebhook',
+        'Parse Intent': 'n8n-nodes-base.code',
+        'Voice Agent Webhook': 'n8n-nodes-base.webhook',
+        'Final Query': 'n8n-nodes-base.code',
+    }
+    for name, node_type in required_types.items():
+        if name not in old_nodes or old_nodes[name].get('type') != node_type:
+            raise ValueError('Required research dependency is missing, renamed, or incompatible: ' + name)
     search = old_nodes['Search Web']
-    if search['type'] != 'n8n-nodes-base.httpRequest':
-        raise ValueError('Search Web must be the original Serper HTTP node.')
     connections = existing.get('connections', {})
     expected = {'Route by Intent': 'Search Web', 'Search Web': 'Format Search Results',
                 'Format Search Results': 'Summarize (Groq)'}
@@ -110,6 +118,13 @@ def upgrade(existing, template=None):
     for source in ('Search Web', 'Format Search Results', *sorted(new_names)):
         if source in template['connections']:
             result['connections'][source] = copy.deepcopy(template['connections'][source])
+    # Every connection introduced by the provider branch must target a retained node.
+    names = set(nodes)
+    for source in ('Search Web', 'Format Search Results', *sorted(new_names)):
+        for branches in result['connections'].get(source, {}).values():
+            for outputs in branches:
+                if any(connection['node'] not in names for connection in outputs):
+                    raise ValueError('A new research connection has no destination node.')
     return result
 
 
