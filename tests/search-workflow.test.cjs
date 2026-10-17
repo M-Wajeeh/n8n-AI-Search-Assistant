@@ -80,3 +80,9 @@ test('a disabled gateway passing input cannot authorize research', () => {
   const allowed = choose({});
   assert.equal(code('Check Research Permission', allowed).search_provider, 'parallel');
 });
+
+test('explicit Parallel choices ignore malformed unused Serper settings', () => {
+  const invalidSerper = { specifyHeaders: 'json', jsonHeaders: 'invalid' };
+  assert.equal(choose({ search_provider: 'parallel' }, undefined, invalidSerper).search_provider, 'parallel');
+  assert.equal(choose({}, s => s.replace("provider = 'auto'", "provider = 'parallel'"), invalidSerper).search_provider, 'parallel');
+});

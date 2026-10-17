@@ -61,6 +61,22 @@ class UpdateWorkflowTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 updater.upgrade(value)
 
+    def test_rejects_custom_references_to_old_search_output(self):
+        for expression in ['$node["Search Web"].json.organic', "$('Search Web').first().json", "$items('Search Web')"]:
+            value = legacy()
+            value['nodes'][3]['parameters']['jsonBody'] = expression
+            with self.assertRaisesRegex(ValueError, 'Additional Search Web reference'):
+                updater.upgrade(value)
+
+    def test_does_not_restore_removed_unrelated_nodes(self):
+        result = updater.upgrade(legacy())
+        names = {node['name'] for node in result['nodes']}
+        self.assertNotIn('Error Trigger', names)
+        self.assertNotIn('Groq Whisper STT', names)
+        self.assertNotIn('Fetch Weather', names)
+        self.assertIn('Custom integration', names)
+        self.assertIn('Search Web (Parallel)', names)
+
     def test_cli_writes_separate_output_and_refuses_overwrite(self):
         with tempfile.TemporaryDirectory() as directory:
             source = Path(directory) / 'export.json'

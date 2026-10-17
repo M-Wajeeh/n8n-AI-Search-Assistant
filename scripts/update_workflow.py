@@ -17,6 +17,17 @@ def fingerprint(value):
 ORIGINAL_EXPRESSIONS = {'Final Query': {'jsCode': 'b6c66f1655907da0644d82a60dd2f6d8917e72e1ee9b6e3b681a2c585dbe43de'}, 'Classify Intent (Groq)': {'jsonBody': 'e3e8d1eeae3580aa5a3297f9730acc884bf182277ef3fc6202d965a250fdaa6b'}, 'Format Search Results': {'jsCode': 'f14d6dc9047e7d152a6d8341fadc7ca97eab4b49ac923c806505409cad342137'}, 'Summarize (Groq)': {'jsonBody': '72e37c630d4204d5e442800f0bd35698261dab2a7155e980bd07cdf8cc2ecefd'}, 'Respond to Webhook': {'responseBody': '2141bf3a7fed8cb369ecec5284ced4c991074fcf0878693cbbe7e1e912b2e9ba'}}
 
 
+def parameter_strings(value):
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for child in value.values():
+            yield from parameter_strings(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from parameter_strings(child)
+
+
 def edge(name):
     return [{'node': name, 'type': 'main', 'index': 0}]
 
@@ -53,14 +64,22 @@ def upgrade(existing, template=None):
     formatter = old_nodes['Format Search Results']['parameters'].get('jsCode', '')
     if fingerprint(formatter) != ORIGINAL_EXPRESSIONS['Format Search Results']['jsCode']:
         raise ValueError('Custom search formatter: adapt the research branch manually.')
+    # Renaming arbitrary expressions safely would require parsing user code. Refuse
+    # extra references instead of silently changing what their old node name means.
+    for name, node in old_nodes.items():
+        for value in parameter_strings(node.get('parameters', {})):
+            if name == 'Format Search Results' and value == formatter:
+                continue
+            if 'Search Web' in value:
+                raise ValueError('Additional Search Web reference in ' + name + ': adapt it manually.')
     fresh_nodes = {node['name']: node for node in template['nodes']}
-    additions = [node for node in template['nodes'] if node['name'] not in old_nodes]
     # An existing new-provider name could hide a custom integration. Never overwrite it.
     new_names = {'Search Web (Serper)', 'Route Search Provider', 'Initialize Parallel MCP',
                  'Check MCP Initialization', 'Notify Parallel MCP', 'Search Web (Parallel)',
                  'Format Parallel Results', 'Research Has Results?', 'Check Research Permission'}
     if new_names.intersection(old_nodes):
         raise ValueError('Workflow already has provider nodes; update it manually.')
+    additions = [node for node in template['nodes'] if node['name'] in new_names]
     result = copy.deepcopy(existing)
     nodes = {node['name']: node for node in result['nodes']}
     gateway = copy.deepcopy(fresh_nodes['Search Web'])

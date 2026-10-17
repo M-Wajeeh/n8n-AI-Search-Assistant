@@ -219,7 +219,7 @@ Export your current workflow from n8n, then run the update utility with Python 3
 python3 scripts/update_workflow.py exported-workflow.json updated-workflow.json
 ```
 
-Import the resulting file after reviewing it. The utility copies your Serper parameters and credentials into **Search Web (Serper)**, preserves the original **Search Web** node's disabled state as a research-wide gateway, and keeps other nodes and settings. It refuses existing output files and unsupported research rewiring or custom search formatters; adapt those workflows manually while keeping their disable and provider choices. Export a backup before updating.
+Import the resulting file after reviewing it. The utility copies your Serper parameters and credentials into **Search Web (Serper)**, preserves the original **Search Web** node's disabled state as a research-wide gateway, and keeps other nodes and settings. It refuses existing output files and unsupported research rewiring, custom search formatters, or additional references to the original Search Web node; adapt those workflows manually while keeping their disable and provider choices. Export a backup before updating.
 
 ### Search provider settings
 
